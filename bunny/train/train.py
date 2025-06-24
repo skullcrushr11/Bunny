@@ -227,6 +227,13 @@ def train():
             trust_remote_code=True
         )
     if model_args.model_type == 'llama3-8b':
+            tokenizer = transformers.AutoTokenizer.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            use_fast=True,
+        )
         tokenizer.eos_token_id = 128001
         tokenizer.pad_token = tokenizer.eos_token
 
