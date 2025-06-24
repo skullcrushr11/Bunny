@@ -227,7 +227,7 @@ def train():
             trust_remote_code=True
         )
     if model_args.model_type == 'llama3-8b':
-            tokenizer = transformers.AutoTokenizer.from_pretrained(
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             model_max_length=training_args.model_max_length,
