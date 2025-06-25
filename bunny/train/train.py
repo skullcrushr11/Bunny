@@ -45,7 +45,7 @@ class TrainingArguments(transformers.TrainingArguments):
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
     model_max_length: int = field(
-        default=4096,  # Increased to handle longer LaTeX strings
+        default=4096,
         metadata={
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
@@ -62,7 +62,7 @@ class TrainingArguments(transformers.TrainingArguments):
         default=16,
         metadata={"help": "How many bits to use."}
     )
-    lora_enable: bool = field(default=True)  # Enabled by default to match train_bunny
+    lora_enable: bool = field(default=True)
     lora_r: int = 64
     lora_alpha: int = 16
     lora_dropout: float = 0.05
@@ -313,16 +313,13 @@ def train():
             def make_inputs_require_grad(module, input, output):
                 if input[0] is not None:
                     for i in input[0]:
-                        if i is not None:
+                        if i is not None and i.requires_grad is False:
                             i.requires_grad_(True)
-                output.requires_grad_(True)
+                if output is not None and output.requires_grad is False:
+                    output.requires_grad_(True)
                 return output
 
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-        # Ensure model parameters are trainable
-        for param in model.parameters():
-            if param.requires_grad:
-                param.grad = None  # Reset gradients to avoid accumulation issues
 
     if training_args.lora_enable:
         from peft import LoraConfig, get_peft_model
