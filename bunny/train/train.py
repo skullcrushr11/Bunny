@@ -394,12 +394,14 @@ def train():
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     trainer = BunnyTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
 
-    # Disable resume from checkpoint for now
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train()  # Removed resume_from_checkpoint=True
     else:
         trainer.train()
     trainer.save_state()
+
+    # Clear CUDA cache after training to reduce memory pressure
+    torch.cuda.empty_cache()
 
     model.config.use_cache = True
 
