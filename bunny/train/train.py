@@ -7,7 +7,7 @@ from typing import Optional
 import torch
 
 import transformers
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, GenerationMixin, PreTrainedModel
 
 from bunny.train.bunny_trainer import BunnyTrainer
 
@@ -45,7 +45,7 @@ class TrainingArguments(transformers.TrainingArguments):
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
     model_max_length: int = field(
-        default=2048,  # Updated to match train_bunny and handle LaTeX length
+        default=2048,
         metadata={
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
@@ -241,11 +241,19 @@ def train():
             eos_token_id=tokenizer.eos_token_id,
             **bnb_model_from_pretrained_args
         )
-        model.resize_token_embeddings(len(tokenizer))  # Moved inside
+        model.resize_token_embeddings(len(tokenizer))
         tokenizer.pad_token = tokenizer.eos_token
         print(f"Tokenizer vocab size after adding <image>: {len(tokenizer)}")
         tokenizer.eos_token_id = 128001
         tokenizer.pad_token = tokenizer.eos_token
+    else:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            use_fast=True,
+        )
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
@@ -282,7 +290,7 @@ def train():
             cache_dir=training_args.cache_dir,
             **bnb_model_from_pretrained_args
         )
-    else:
+    elif model_args.model_type != 'llama3-8b':  # Handle fallback for unknown types
         raise ValueError(f"Unknown Model Type {model_args.model_type}")
 
     model.config.use_cache = False
