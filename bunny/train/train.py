@@ -45,7 +45,7 @@ class TrainingArguments(transformers.TrainingArguments):
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
     model_max_length: int = field(
-        default=2048,
+        default=4096,  # Increased to handle longer LaTeX strings
         metadata={
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
@@ -62,7 +62,7 @@ class TrainingArguments(transformers.TrainingArguments):
         default=16,
         metadata={"help": "How many bits to use."}
     )
-    lora_enable: bool = False
+    lora_enable: bool = field(default=True)  # Enabled by default to match train_bunny
     lora_r: int = 64
     lora_alpha: int = 16
     lora_dropout: float = 0.05
@@ -304,15 +304,25 @@ def train():
             torch.float32 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
 
+    # Enhanced gradient checkpointing
     if training_args.gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
             torch.set_grad_enabled(True)
         else:
             def make_inputs_require_grad(module, input, output):
+                if input[0] is not None:
+                    for i in input[0]:
+                        if i is not None:
+                            i.requires_grad_(True)
                 output.requires_grad_(True)
+                return output
 
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+        # Ensure model parameters are trainable
+        for param in model.parameters():
+            if param.requires_grad:
+                param.grad = None  # Reset gradients to avoid accumulation issues
 
     if training_args.lora_enable:
         from peft import LoraConfig, get_peft_model
@@ -384,12 +394,8 @@ def train():
                     if training_args.bf16 and module.weight.dtype == torch.float32:
                         module = module.to(torch.bfloat16)
 
-    data_module = make_supervised_data_module(tokenizer=tokenizer,
-                                              data_args=data_args)
-    trainer = BunnyTrainer(model=model,
-                           tokenizer=tokenizer,
-                           args=training_args,
-                           **data_module)
+    data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    trainer = BunnyTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
 
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
@@ -400,19 +406,14 @@ def train():
     model.config.use_cache = True
 
     if training_args.lora_enable:
-        state_dict = get_peft_state_maybe_zero_3(
-            model.named_parameters(), training_args.lora_bias
-        )
-        non_lora_state_dict = get_peft_state_non_lora_maybe_zero_3(
-            model.named_parameters()
-        )
+        state_dict = get_peft_state_maybe_zero_3(model.named_parameters(), training_args.lora_bias)
+        non_lora_state_dict = get_peft_state_non_lora_maybe_zero_3(model.named_parameters())
         if training_args.local_rank == 0 or training_args.local_rank == -1:
             model.config.save_pretrained(training_args.output_dir)
             model.save_pretrained(training_args.output_dir, state_dict=state_dict)
             torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, 'non_lora_trainables.bin'))
     else:
-        safe_save_model_for_hf_trainer(trainer=trainer,
-                                       output_dir=training_args.output_dir)
+        safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
 
 
 if __name__ == "__main__":
