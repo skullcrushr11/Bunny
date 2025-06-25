@@ -45,10 +45,9 @@ class TrainingArguments(transformers.TrainingArguments):
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
     model_max_length: int = field(
-        default=512,
+        default=2048,  # Updated to match train_bunny and handle LaTeX length
         metadata={
-            "help":
-                "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
+            "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
     )
     double_quant: bool = field(
@@ -143,8 +142,7 @@ def find_all_linear_names(model):
     return list(lora_module_names)
 
 
-def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
-                                   output_dir: str):
+def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
     """Collects the state dict and dump to disk."""
 
     if getattr(trainer.args, "tune_mm_mlp_adapter", False):
@@ -210,7 +208,7 @@ def train():
         ))
 
     assert model_args.vision_tower is not None
-    if model_args.model_type in {'phi-1.5', 'phi-2', 'phi-3', 'qwen1.5-1.8b', 'minicpm', 'llama3-8b'}:
+    if model_args.model_type in {'phi-1.5', 'phi-2', 'phi-3', 'qwen1.5-1.8b', 'minicpm'}:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
@@ -243,7 +241,7 @@ def train():
             eos_token_id=tokenizer.eos_token_id,
             **bnb_model_from_pretrained_args
         )
-        model.resize_token_embeddings(len(tokenizer))  # Move here
+        model.resize_token_embeddings(len(tokenizer))  # Moved inside
         tokenizer.pad_token = tokenizer.eos_token
         print(f"Tokenizer vocab size after adding <image>: {len(tokenizer)}")
         tokenizer.eos_token_id = 128001
@@ -251,10 +249,6 @@ def train():
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
-
-    # if model_args.model_type == 'llama3-8b':
-    #     tokenizer.eos_token_id = 128001
-    #     tokenizer.pad_token = tokenizer.eos_token
 
     if model_args.model_type == 'phi-1.5' or model_args.model_type == 'phi-2':
         model = BunnyPhiForCausalLM.from_pretrained(
@@ -288,14 +282,6 @@ def train():
             cache_dir=training_args.cache_dir,
             **bnb_model_from_pretrained_args
         )
-    # elif model_args.model_type == 'llama3-8b':
-    #     model = BunnyLlamaForCausalLM.from_pretrained(
-    #         model_args.model_name_or_path,
-    #         cache_dir=training_args.cache_dir,
-    #         bos_token_id=tokenizer.bos_token_id,
-    #         eos_token_id=tokenizer.eos_token_id,
-    #         **bnb_model_from_pretrained_args
-    #     )
     else:
         raise ValueError(f"Unknown Model Type {model_args.model_type}")
 
