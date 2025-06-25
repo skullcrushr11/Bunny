@@ -38,14 +38,14 @@ def preprocess_multimodal(
     for source in sources:
         for sentence in source:
             if DEFAULT_IMAGE_TOKEN in sentence['value']:
+                original_value = sentence['value']
                 sentence['value'] = sentence['value'].replace(DEFAULT_IMAGE_TOKEN, '').strip()
                 sentence['value'] = DEFAULT_IMAGE_TOKEN + '\n' + sentence['value']
                 sentence['value'] = sentence['value'].strip()
                 tokenized_len = len(tokenizer_image_token(sentence['value'], tokenizer, return_tensors='pt')[0])
-                print(f"Debug: Sentence '{sentence['value']}' tokenized length: {tokenized_len}")
+                print(f"Debug: Source {id(source)} - Original: '{original_value}', Processed: '{sentence['value']}', Tokenized Length: {tokenized_len}")
 
             replace_token = DEFAULT_IMAGE_TOKEN
-
             sentence["value"] = sentence["value"].replace(DEFAULT_IMAGE_TOKEN, replace_token)
 
     return sources
@@ -71,20 +71,27 @@ def preprocess_bunny(
             role = roles[sentence["from"]]
             assert role == conv.roles[j % 2], f"{i}"
             conv.append_message(role, sentence["value"])
-        conversations.append(conv.get_prompt())
+        prompt = conv.get_prompt()
+        conversations.append(prompt)
+        print(f"Debug: Source {i} - Prompt: '{prompt}'")
 
     # Tokenize conversations
     if has_image:
         input_ids = torch.stack(
             [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations], dim=0)
+        for i, ids in enumerate(input_ids):
+            print(f"Debug: Source {i} - Input IDs Length: {len(ids[0])}, Content: {ids[0].tolist()}")
     else:
-        input_ids = tokenizer(
+        tokenized = tokenizer(
             conversations,
             return_tensors="pt",
             padding="longest",
             max_length=tokenizer.model_max_length,
             truncation=True,
-        ).input_ids
+        )
+        input_ids = tokenized.input_ids
+        for i, ids in enumerate(input_ids):
+            print(f"Debug: Source {i} - Input IDs Length: {len(ids)}, Content: {ids.tolist()}")
 
     targets = input_ids.clone()
 
@@ -92,15 +99,15 @@ def preprocess_bunny(
 
     # Mask targets
     sep = conv.sep + conv.roles[1] + ": "
-    for conversation, target in zip(conversations, targets):
+    for i, (conversation, target) in enumerate(zip(conversations, targets)):
         total_len = int(target.ne(tokenizer.pad_token_id).sum())
-        print(f"Debug: Total length before masking: {total_len}")
+        print(f"Debug: Source {i} - Total Length Before Masking: {total_len}")
 
         rounds = conversation.split(conv.sep2)
         cur_len = 0
         end_token_cnt = 0
 
-        for i, rou in enumerate(rounds):
+        for j, rou in enumerate(rounds):
             if rou == "":
                 break
 
@@ -112,19 +119,21 @@ def preprocess_bunny(
             if has_image:
                 round_len = len(tokenizer_image_token(rou, tokenizer))
                 instruction_len = len(tokenizer_image_token(parts[0], tokenizer)) - 1
+                print(f"Debug: Source {i}, Round {j} - Round Length: {round_len}, Instruction Length: {instruction_len}")
             else:
                 round_len = len(tokenizer(rou).input_ids)
                 instruction_len = len(tokenizer(parts[0]).input_ids) - 1
+                print(f"Debug: Source {i}, Round {j} - Round Length: {round_len}, Instruction Length: {instruction_len}")
 
             round_len += 1
             end_token_cnt += 1
 
             target[cur_len: cur_len + instruction_len] = IGNORE_INDEX
-            print(f"Debug: Masking from {cur_len} to {cur_len + instruction_len - 1}")
+            print(f"Debug: Source {i}, Round {j} - Masking from {cur_len} to {cur_len + instruction_len - 1}")
 
             cur_len += round_len
         target[cur_len:] = IGNORE_INDEX
-        print(f"Debug: Labels after masking: {target.tolist()}")
+        print(f"Debug: Source {i} - Labels After Masking: {target.tolist()}")
 
         if tokenizer.pad_token_id == tokenizer.eos_token_id:
             cur_len -= end_token_cnt
@@ -134,7 +143,7 @@ def preprocess_bunny(
                 target = torch.cat([target[:cur_len], torch.full((padding_length,), IGNORE_INDEX, dtype=target.dtype)], dim=0)
             elif padding_length < 0:
                 target = target[:total_len]
-        print(f"Debug: Tokenization check: cur_len={cur_len}, total_len={total_len}, adjusted={len(target)}")
+        print(f"Debug: Source {i} - Tokenization Check: cur_len={cur_len}, total_len={total_len}, Adjusted={len(target)}")
 
     return dict(
         input_ids=input_ids,
@@ -185,7 +194,6 @@ def preprocess_bunny_with_bos(
     sep = conv.sep + conv.roles[1] + ": "
     for conversation, target in zip(conversations, targets):
         total_len = int(target.ne(tokenizer.pad_token_id).sum())
-        print(f"Debug: Total length before masking: {total_len}")
 
         rounds = conversation.split(conv.sep2)
         cur_len = 1
@@ -209,12 +217,10 @@ def preprocess_bunny_with_bos(
                 instruction_len = len(tokenizer(parts[0]).input_ids) - 2
 
             target[cur_len: cur_len + instruction_len] = IGNORE_INDEX
-            print(f"Debug: Masking from {cur_len} to {cur_len + instruction_len - 1}")
 
             end_token_cnt += 1
             cur_len += round_len
         target[cur_len:] = IGNORE_INDEX
-        print(f"Debug: Labels after masking: {target.tolist()}")
 
         if tokenizer.pad_token_id == tokenizer.eos_token_id:
             cur_len -= end_token_cnt
@@ -224,7 +230,6 @@ def preprocess_bunny_with_bos(
                 target = torch.cat([target[:cur_len], torch.full((padding_length,), IGNORE_INDEX, dtype=target.dtype)], dim=0)
             elif padding_length < 0:
                 target = target[:total_len]
-        print(f"Debug: Tokenization check: cur_len={cur_len}, total_len={total_len}, adjusted={len(target)}")
 
     return dict(
         input_ids=input_ids,
