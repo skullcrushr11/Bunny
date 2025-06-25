@@ -72,7 +72,6 @@ def preprocess_bunny(
         conversations.append(conv.get_prompt())
 
     # Tokenize conversations
-
     if has_image:
         input_ids = torch.stack(
             [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations], dim=0)
@@ -124,13 +123,13 @@ def preprocess_bunny(
 
         if tokenizer.pad_token_id == tokenizer.eos_token_id:
             cur_len -= end_token_cnt
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                target[:] = IGNORE_INDEX
-                print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
-                )
+        if cur_len < total_len:  # Adjust padding to match total_len
+            padding_length = total_len - cur_len
+            if padding_length > 0:
+                target = torch.cat([target[:cur_len], torch.full((padding_length,), IGNORE_INDEX, dtype=target.dtype)], dim=0)
+            elif padding_length < 0:
+                target = target[:total_len]
+        print(f"Tokenization check: cur_len={cur_len}, total_len={total_len}, adjusted={len(target)}")
 
     return dict(
         input_ids=input_ids,
@@ -161,7 +160,6 @@ def preprocess_bunny_with_bos(
         conversations.append(conv.get_prompt())
 
     # Tokenize conversations
-
     if has_image:
         input_ids = torch.stack(
             [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations], dim=0)
@@ -212,13 +210,13 @@ def preprocess_bunny_with_bos(
 
         if tokenizer.pad_token_id == tokenizer.eos_token_id:
             cur_len -= end_token_cnt
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                target[:] = IGNORE_INDEX
-                print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
-                )
+        if cur_len < total_len:  # Adjust padding to match total_len
+            padding_length = total_len - cur_len
+            if padding_length > 0:
+                target = torch.cat([target[:cur_len], torch.full((padding_length,), IGNORE_INDEX, dtype=target.dtype)], dim=0)
+            elif padding_length < 0:
+                target = target[:total_len]
+        print(f"Tokenization check: cur_len={cur_len}, total_len={total_len}, adjusted={len(target)}")
 
     return dict(
         input_ids=input_ids,
@@ -371,17 +369,21 @@ class DataCollatorForSupervisedDataset(object):
             input_ids,
             batch_first=True,
             padding_value=self.tokenizer.pad_token_id)
-
         labels = torch.nn.utils.rnn.pad_sequence(
             labels,
             batch_first=True,
             padding_value=IGNORE_INDEX)
 
+        # Set requires_grad=True on input tensors
+        input_ids.requires_grad = True
+        labels.requires_grad = True
+        print(f"Collated input_ids requires_grad: {input_ids.requires_grad}")
+        print(f"Collated labels requires_grad: {labels.requires_grad}")
+
         input_ids = input_ids[:, :self.tokenizer.model_max_length]
+        labels = labels[:, :self.tokenizer.model_max_length]
 
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
-
-        labels = labels[:, :self.tokenizer.model_max_length]
 
         if self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
             for input_id in input_ids:
