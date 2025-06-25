@@ -227,7 +227,7 @@ def train():
             use_fast=True,
             trust_remote_code=True
         )
-    if model_args.model_type == 'llama3-8b':
+    elif model_args.model_type == 'llama3-8b':
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
@@ -236,11 +236,18 @@ def train():
             use_fast=True,
         )
         tokenizer.add_tokens(['<image>'])
-        model.resize_token_embeddings(len(tokenizer))  # Resize embeddings after adding tokens
-        tokenizer.pad_token = tokenizer.eos_token
-        print(f"Tokenizer vocab size after adding <image>: {len(tokenizer)}")
-        tokenizer.eos_token_id = 128001
-        tokenizer.pad_token = tokenizer.eos_token
+        model = BunnyLlamaForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+            bos_token_id=tokenizer.bos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            **bnb_model_from_pretrained_args
+        )
+    model.resize_token_embeddings(len(tokenizer))  # Move here
+    tokenizer.pad_token = tokenizer.eos_token
+    print(f"Tokenizer vocab size after adding <image>: {len(tokenizer)}")
+    tokenizer.eos_token_id = 128001
+    tokenizer.pad_token = tokenizer.eos_token
 
     if tokenizer.unk_token is not None and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
@@ -281,14 +288,14 @@ def train():
             cache_dir=training_args.cache_dir,
             **bnb_model_from_pretrained_args
         )
-    elif model_args.model_type == 'llama3-8b':
-        model = BunnyLlamaForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            bos_token_id=tokenizer.bos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            **bnb_model_from_pretrained_args
-        )
+    # elif model_args.model_type == 'llama3-8b':
+    #     model = BunnyLlamaForCausalLM.from_pretrained(
+    #         model_args.model_name_or_path,
+    #         cache_dir=training_args.cache_dir,
+    #         bos_token_id=tokenizer.bos_token_id,
+    #         eos_token_id=tokenizer.eos_token_id,
+    #         **bnb_model_from_pretrained_args
+    #     )
     else:
         raise ValueError(f"Unknown Model Type {model_args.model_type}")
 
