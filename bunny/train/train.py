@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 
 import transformers
+from transformers import AutoTokenizer
 
 from bunny.train.bunny_trainer import BunnyTrainer
 
