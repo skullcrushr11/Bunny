@@ -301,6 +301,7 @@ def train():
     if training_args.gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
+            torch.set_grad_enabled(True)
         else:
             def make_inputs_require_grad(module, input, output):
                 output.requires_grad_(True)
